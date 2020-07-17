@@ -1,0 +1,157 @@
+---
+title: "tigris in Alteryx"
+author: "ABrasch"
+date: "7/14/2020"
+output:
+  html_document:
+    includes:
+      before_body: header.html
+      after_body: footer.html
+    code_folding: hide
+    highlight: zenburn
+    self_contained: yes
+    theme: darkly
+    toc: yes
+    toc_depth: '2'
+    toc_float:
+      collapsed: no
+      toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+editor_options:
+  chunk_output_type: console
+always_allow_html: yes
+---
+
+```{css, echo = FALSE}
+# Code chunk color definition  
+pre:not([class]) {
+    color: #333333;
+    background-color: #cccccc;
+  }
+
+# Block quote sizing
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+```
+
+```{r setup, echo=FALSE, warning=FALSE, error=FALSE, results='hide', message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, warning=FALSE, error=FALSE, results='hide', message=FALSE}
+# Require the pacman package to easily load all necessary packages
+if(!require(pacman)){install.packages("pacman");library(pacman)}
+suppressPackageStartupMessages(p_load(
+  tidyverse,
+  tigris,
+  sf,
+  mapview,
+  kableExtra,
+  geojsonsf))
+
+# Set options
+options(stringsAsFactors = F) # R often uses a concept of factors to re-encode strings. This can be too early and too aggressive. Sometimes a string is just a string. To avoid problems delay re-encoding of strings by using stringsAsFactors = FALSE when creating data.frames.
+options(dplyr.width = Inf) # In response to “Variables not shown” in dplyr; overrides the width of columns that gets printed out (i.e., to display all columns from df)
+options(survey.replicates.mse = T) # options("survey.replicates.mse") controls the default in svrepdesign and as.svrepdesign for computing variances. When options("survey.replicates.mse") is TRUE, the default is to create replicate weight designs that compute variances centered at the point estimate, rather than at the mean of the replicates.
+options(scipen = 999) # 'scipen': integer. A penalty to be applied when deciding to print numeric values in fixed or exponential notation. Positive values bias towards fixed and negative towards scientific notation: fixed notation will be preferred unless it is more than 'scipen' digits wider.
+```
+
+# Reference
+
+- [tigris ](https://github.com/walkerke/tigris "tigris package")
+- [sf Simple Features](https://r-spatial.github.io/sf/index.html "sf Simple Features")
+- [geojsonsf](https://github.com/SymbolixAU/geojsonsf "geojsonsf")
+- [Data Frames in R-Alteryx](https://community.alteryx.com/t5/Data-Science/Code-Friendly-Data-Structures-Data-Frames-in-R/ba-p/428062 "Data Frames in R-Alteryx")
+- [R tigris package Inbound Pipe Error - Alteryx Community Solution](https://community.alteryx.com/t5/Dev-Space/R-tigris-package-Inbound-Pipe-Error/td-p/603157 "R tigris package Inbound Pipe Error - Alteryx Community Solution")
+
+## Original Question
+
+I am attempting to use the R package tigris within an R tool, in order to retrieve geographies using the Census API. The attached R code (saved as txt to allow upload) works as expected in RStudio. Note that tigris is not a package included in the Predictive Analytics RInstaller, but the package is correctly installed and available to Alteryx. Running the R tool produces the following error: The Designer x64 reported: InboundNamedPipe GetOverlappedResults: The pipe has been ended.
+
+Note that on occasion, the error message also includes "You have found a bug. Replicate, then let us know. We shall fix it soon." I opened a case, but was told that since the package is not part of the Predictive Analytics RInstaller that it is very unlikely the Dev team would address, so the case was closed.
+
+Any advice on the potential issue would be helpful.
+
+## Solution by PaulNo
+
+**Huge thanks to [PaulNo](https://community.alteryx.com/t5/user/viewprofilepage/user-id/160186 "PaulNo") for assistance in finding a workable solution!**
+
+See the comments and solution in the [R tigris package Inbound Pipe Error - Alteryx Community Solution post](https://community.alteryx.com/t5/Dev-Space/R-tigris-package-Inbound-Pipe-Error/td-p/603157 "R tigris package Inbound Pipe Error - Alteryx Community Solution post"), and detailed in the code example below.
+
+# Code Example
+
+Load required packages.
+
+```{r class.source = 'fold-show', results='hide', message = FALSE, warning = FALSE}
+library(tigris)
+library(sf)
+library(geojsonsf)
+library(dplyr)
+library(magrittr)
+library(tibble)
+library(tidyr)
+library(mapview)
+library(kableExtra)
+```
+
+## tigris API call
+
+Use the `tigris` tracts() function to download all tracts in a specific state and county.
+
+```{r class.source = 'fold-show', results='hide', message = FALSE, warning = FALSE}
+tr_WI_Winnebago <- tigris::tracts(
+  state = "WI", # Specify state
+  county = "Winnebago", # Specify county
+  year = 2019, # Specify year
+  cb = FALSE) # Specify cartographic boundary (True) or TIGER Line/Shapefile (False)
+
+class(tr_WI_Winnebago) # Check object class
+st_crs(tr_WI_Winnebago) # Check coordinate system
+```
+
+## sf to geojson
+
+By default, `tigris` returns sf (simple feature) objects, which is not a useable object type in Alteryx workflows outside of the R tool, because Alteryx Designer uses [data-frame-like structures](https://community.alteryx.com/t5/Data-Science/Code-Friendly-Data-Structures-Data-Frames-in-R/ba-p/428062 "data-frame-like structures") in its data streams. Therefore, we need to convert the sf object to a data frame.
+
+Use the `geojsonsf` package to convert the sf geometry to a geojson vector; then convert the geojson vector to a data frame.
+
+```{r class.source = 'fold-show', results='hide', message = FALSE, warning = FALSE}
+geometry <- geojsonsf::sfc_geojson(tr_WI_Winnebago$geometry) # Converts `sfc` objects to GeoJSON
+# as.list(geometry) # View as a list
+st_crs(geometry) # Check coordinate system
+# The coordinate reference system for all GeoJSON coordinates is a geographic coordinate reference system, using the World Geodetic System 1984 (WGS 84) [WGS84] datum, with longitude and latitude units of decimal degrees.
+
+geometry_df <- data.frame(GEOID = tr_WI_Winnebago$GEOID,
+                          geometry = matrix(unlist(geometry),nrow = length(geometry), byrow = T)) # Create data frame from geojson vector, maintaining the GEOID and geometry variable
+
+class(geometry_df) # Check object class
+st_crs(geometry_df) # Check coordinate system
+```
+
+Remove the original sf geometry and join the original attribute data to the new data frame. 
+
+```{r class.source = 'fold-show', results='hide', message = FALSE, warning = FALSE}
+tr_WI_Winnebago_removesf <- tr_WI_Winnebago %>% st_set_geometry(NULL)
+class(tr_WI_Winnebago_removesf) # Check object class
+st_crs(tr_WI_Winnebago_removesf) # Check coordinate system
+
+tr_WI_Winnebago_geo <- tr_WI_Winnebago_removesf %>%
+  inner_join(geometry_df, by = c("GEOID" = "GEOID"))
+class(tr_WI_Winnebago_geo) # Check object class
+st_crs(tr_WI_Winnebago_geo) # Check coordinate system
+```
+
+In Alteryx, write out to an output anchor; then use a Select tool to convert `geometry` to a spatial object.
+
+```{r class.source = 'fold-show', results='hide', message = FALSE, warning = FALSE}
+# write.Alteryx(tr_WI_Winnebago_geo, 1)
+```
